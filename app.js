@@ -913,11 +913,17 @@ function productPage(p){
     <section class="section pdp">
       <div class="pdp__gallery">
         <div class="pdp__heroimg">
-          ${main
-            ? `<img id="pdpMainImg" class="pdp__mainimg" src="${main}" alt="${escapeHtml(p.name)}" loading="eager">`
-            : `<div class="pdp__phone" id="pdpPhone"></div>`
-          }
-        </div>
+  ${imgs.length
+    ? `<div id="pdpSlider" class="pdp__slider" aria-label="Galería de imágenes">
+        ${imgs.map((src, i)=>`
+          <div class="pdp__slide" data-i="${i}">
+            <img src="${src}" alt="${escapeHtml(p.name)} - Foto ${i+1}" loading="${i===0?'eager':'lazy'}">
+          </div>
+        `).join("")}
+      </div>`
+    : `<div class="pdp__phone" id="pdpPhone"></div>`
+  }
+</div>
 
         <div class="pdp__thumbs" id="pdpThumbs">
           ${thumbs.map((src, i)=>`
@@ -1118,22 +1124,95 @@ function bindHome(){
 }
 
 function bindProductPage(p){
-  // thumbs: cambian la imagen principal
   const imgs = (p.images && p.images.length) ? p.images : [];
-  const mainImg = $("#pdpMainImg");
+  const slider = $("#pdpSlider");
+  const thumbs = $$(".thumb");
 
-  $$(".thumb").forEach(t=>{
-    t.addEventListener("click", ()=>{
-      $$(".thumb").forEach(x=>x.classList.remove("is-active"));
+  const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+
+  const getIndex = () => {
+    if(!slider || !slider.clientWidth) return 0;
+    return clamp(Math.round(slider.scrollLeft / slider.clientWidth), 0, Math.max(0, imgs.length - 1));
+  };
+
+  const setActiveThumb = (i) => {
+    thumbs.forEach(x => x.classList.remove("is-active"));
+    const t = thumbs.find(x => parseInt(x.dataset.thumb, 10) === i);
+    if(t){
       t.classList.add("is-active");
+      // asegura que la mini quede visible
+      t.scrollIntoView({behavior:"smooth", inline:"center", block:"nearest"});
+    }
+  };
 
+  const goTo = (i, smooth=true) => {
+    if(!slider) return;
+    const idx = clamp(i, 0, Math.max(0, imgs.length - 1));
+    const left = slider.clientWidth * idx;
+    slider.scrollTo({ left, behavior: smooth ? "smooth" : "auto" });
+    setActiveThumb(idx);
+  };
+
+  // Click en miniaturas
+  thumbs.forEach(t=>{
+    t.addEventListener("click", ()=>{
       const i = parseInt(t.dataset.thumb, 10);
-      const src = imgs[i] || imgs[0] || "";
-      if(mainImg && src){
-        mainImg.src = src;
-      }
+      goTo(i, true);
+      pauseAuto();
     });
   });
+
+  // Sincronizar miniatura al deslizar
+  let scrollTick = null;
+  if(slider){
+    slider.addEventListener("scroll", ()=>{
+      if(scrollTick) cancelAnimationFrame(scrollTick);
+      scrollTick = requestAnimationFrame(()=>{
+        setActiveThumb(getIndex());
+      });
+    }, {passive:true});
+  }
+
+  // Auto slider cada 3s + pausa al interactuar
+  let autoTimer = null;
+  let resumeTimer = null;
+
+  function startAuto(){
+    stopAuto();
+    if(!slider || imgs.length <= 1) return;
+    autoTimer = setInterval(()=>{
+      const next = (getIndex() + 1) % imgs.length;
+      goTo(next, true);
+    }, 3000);
+  }
+
+  function stopAuto(){
+    if(autoTimer){ clearInterval(autoTimer); autoTimer = null; }
+  }
+
+  function pauseAuto(){
+    stopAuto();
+    if(resumeTimer) clearTimeout(resumeTimer);
+    // reanudar luego de 6s sin tocar
+    resumeTimer = setTimeout(startAuto, 6000);
+  }
+
+  if(slider && imgs.length > 1){
+    // iniciar cuando ya hay layout
+    requestAnimationFrame(()=>{
+      goTo(0, false);
+      startAuto();
+    });
+
+    ["touchstart","pointerdown","mousedown","wheel"].forEach(ev=>{
+      slider.addEventListener(ev, pauseAuto, {passive:true});
+    });
+
+    window.addEventListener("resize", ()=>{
+      // mantener el índice al rotar / cambiar tamaño
+      goTo(getIndex(), false);
+    });
+  }
 
   // fav toggle
   const favBtn = $("#favBtn");
