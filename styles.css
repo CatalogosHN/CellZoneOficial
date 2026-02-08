@@ -879,6 +879,7 @@ main{
   justify-content:center;
 }
 .pdp__slide img{
+  cursor: zoom-in;
   width:100%;
   height:100%;
   max-height:260px;
@@ -928,5 +929,104 @@ main{
 @media (max-width: 739px){
   .pdp{grid-template-columns:1fr !important;}
   .pdp__heroimg{height:240px;}
-  .pdp__slide img{max-height:240px;}
+  .pdp__slide img{
+  cursor: zoom-in;max-height:240px;}
+}
+
+
+/* ---------- Lightbox ---------- */
+.no-scroll{ overflow:hidden; }
+
+.lightbox{
+  position:fixed;
+  inset:0;
+  background:rgba(2,6,23,.78);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  z-index:2000;
+  padding:14px;
+}
+.lightbox.is-open{ display:flex; }
+
+.lightbox__inner{
+  position:relative;
+  width:min(920px, 100%);
+  height:min(92vh, 680px);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.lightbox__img{
+  max-width:100%;
+  max-height:100%;
+  object-fit:contain;
+  border-radius:14px;
+  background:#0b1220;
+  box-shadow:0 24px 50px rgba(0,0,0,.35);
+}
+
+.lightbox__close{
+  position:absolute;
+  top:8px;
+  right:8px;
+  width:38px;
+  height:38px;
+  border:none;
+  border-radius:12px;
+  background:rgba(255,255,255,.14);
+  color:#fff;
+  font-size:18px;
+  font-weight:900;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  backdrop-filter: blur(6px);
+}
+
+.lightbox__nav{
+  position:absolute;
+  top:50%;
+  transform:translateY(-50%);
+  width:42px;
+  height:42px;
+  border:none;
+  border-radius:14px;
+  background:rgba(255,255,255,.14);
+  color:#fff;
+  font-size:28px;
+  font-weight:900;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  backdrop-filter: blur(6px);
+}
+.lightbox__prev{ left:8px; }
+.lightbox__next{ right:8px; }
+
+.lightbox__count{
+  position:absolute;
+  bottom:8px;
+  left:50%;
+  transform:translateX(-50%);
+  padding:6px 10px;
+  border-radius:999px;
+  background:rgba(255,255,255,.14);
+  color:#fff;
+  font-weight:900;
+  font-size:12px;
+  letter-spacing:.2px;
+  backdrop-filter: blur(6px);
+}
+
+@media (max-width:480px){
+  .lightbox__nav{
+    width:38px;height:38px;border-radius:12px;font-size:26px;
+  }
+  .lightbox__close{
+    width:36px;height:36px;border-radius:12px;
+  }
 }

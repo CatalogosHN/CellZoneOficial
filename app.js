@@ -919,7 +919,7 @@ function productPage(p){
     ? `<div id="pdpSlider" class="pdp__slider" aria-label="Galería de imágenes">
         ${imgs.map((src, i)=>`
           <div class="pdp__slide" data-i="${i}">
-            <img ${i===0 ? `src="${src}" fetchpriority="high"` : `src="${IMG_PLACEHOLDER}" data-src="${src}"`} alt="${escapeHtml(p.name)} - Foto ${i+1}" loading="${i===0?'eager':'lazy'}" decoding="async">
+            <img class="pdp__mainimg" ${i===0 ? `src="${src}" fetchpriority="high"` : `src="${IMG_PLACEHOLDER}" data-src="${src}"`} alt="${escapeHtml(p.name)} - Foto ${i+1}" loading="${i===0?'eager':'lazy'}" decoding="async">
           </div>
         `).join("")}
       </div>`
@@ -930,7 +930,7 @@ function productPage(p){
         <div class="pdp__thumbs" id="pdpThumbs">
           ${thumbs.map((src, i)=>`
             <div class="thumb ${i===0?"is-active":""}" data-thumb="${i}" title="Imagen ${i+1}">
-              <img src="${src}" alt="Miniatura ${i+1}" loading="lazy" decoding="async">
+              <img src="${src}" alt="Miniatura ${i+1}" loading="eager" decoding="async" fetchpriority="${i<3?"high":"low"}">
             </div>
           `).join("")}
         </div>
@@ -992,6 +992,16 @@ function productPage(p){
       <div id="pdpTabContent">
         ${pdpCharacteristics(p)}
       </div>
+
+    <div id="lightbox" class="lightbox" aria-hidden="true">
+      <div class="lightbox__inner" role="dialog" aria-modal="true" aria-label="Vista ampliada">
+        <button class="lightbox__close" id="lbClose" aria-label="Cerrar">✕</button>
+        <button class="lightbox__nav lightbox__prev" id="lbPrev" aria-label="Imagen anterior">‹</button>
+        <img id="lbImg" class="lightbox__img" src="${IMG_PLACEHOLDER}" alt="Imagen ampliada" decoding="async" loading="eager">
+        <button class="lightbox__nav lightbox__next" id="lbNext" aria-label="Imagen siguiente">›</button>
+        <div class="lightbox__count" id="lbCount"></div>
+      </div>
+    </div>
     </section>
   `;
 }
@@ -1151,6 +1161,39 @@ function bindProductPage(p){
     }
   };
 
+  const decodeIfPossible = (imgEl) => {
+    try{
+      if(imgEl && typeof imgEl.decode === "function"){
+        imgEl.decode().catch(()=>{});
+      }
+    }catch(e){}
+  };
+
+  // Precarga progresiva: hace que al tocar miniaturas cambie casi instantáneo (Android)
+  const preloadAllSlides = () => {
+    if(!slideImgs.length) return;
+    let k = 0;
+    const step = () => {
+      let n = 0;
+      while(n < 2 && k < slideImgs.length){
+        const el = slideImgs[k++];
+        const ds = el.getAttribute("data-src");
+        if(ds){
+          el.src = ds;
+          el.removeAttribute("data-src");
+          decodeIfPossible(el);
+        }
+        n++;
+      }
+      if(k < slideImgs.length){
+        if(window.requestIdleCallback) requestIdleCallback(step, {timeout: 900});
+        else setTimeout(step, 120);
+      }
+    };
+    if(window.requestIdleCallback) requestIdleCallback(step, {timeout: 1200});
+    else setTimeout(step, 150);
+  };
+
   const ensureThumbVisible = (el) => {
     if(!thumbsWrap || !el) return;
     const cLeft = thumbsWrap.scrollLeft;
@@ -1244,6 +1287,7 @@ function bindProductPage(p){
       goTo(0, false);
       loadSlide(0);
       loadSlide(1);
+      preloadAllSlides();
     });
 
     ["touchstart","pointerdown","mousedown","wheel"].forEach(ev=>{
@@ -1270,6 +1314,123 @@ function bindProductPage(p){
     window.addEventListener("resize", ()=>{
       goTo(getIndex(), false);
     });
+
+  // ---------- Lightbox (tocar imagen grande) ----------
+  const lb = $("#lightbox");
+  const lbInner = lb ? $(".lightbox__inner", lb) : null;
+  const lbImg = $("#lbImg");
+  const lbCount = $("#lbCount");
+  const lbPrev = $("#lbPrev");
+  const lbNext = $("#lbNext");
+  const lbClose = $("#lbClose");
+
+  let lbIndex = 0;
+  const isLbOpen = ()=> !!(lb && lb.classList.contains("is-open"));
+
+  const preloadLbAround = (i) => {
+    if(!imgs.length) return;
+    const a = (i + 1) % imgs.length;
+    const b = (i - 1 + imgs.length) % imgs.length;
+    [a,b].forEach(k=>{
+      const url = imgs[k];
+      if(!url) return;
+      try{
+        const im = new Image();
+        im.src = url;
+        if(typeof im.decode === "function") im.decode().catch(()=>{});
+      }catch(e){}
+    });
+  };
+
+  const setLb = (i) => {
+    if(!lb || !lbImg || !imgs.length) return;
+    lbIndex = clamp(i, 0, Math.max(0, imgs.length - 1));
+    const src = imgs[lbIndex];
+    if(src){
+      // asegura que el recurso ya esté cargado/cached
+      loadSlide(lbIndex);
+      loadSlide(lbIndex+1);
+      loadSlide(lbIndex-1);
+      lbImg.src = src;
+      decodeIfPossible(lbImg);
+      preloadLbAround(lbIndex);
+    }
+    if(lbCount) lbCount.textContent = `${lbIndex+1}/${imgs.length}`;
+  };
+
+  const openLb = (i) => {
+    if(!lb || !imgs.length) return;
+    lb.classList.add("is-open");
+    lb.setAttribute("aria-hidden","false");
+    document.body.classList.add("no-scroll");
+    setLb(i);
+  };
+
+  const closeLb = () => {
+    if(!lb) return;
+    lb.classList.remove("is-open");
+    lb.setAttribute("aria-hidden","true");
+    document.body.classList.remove("no-scroll");
+  };
+
+  if(lb){
+    lb.addEventListener("click", (e)=>{
+      // click en el fondo oscuro cierra
+      if(e.target === lb) closeLb();
+    });
+  }
+  if(lbClose) lbClose.addEventListener("click", (e)=>{ e.stopPropagation(); closeLb(); });
+  if(lbPrev) lbPrev.addEventListener("click", (e)=>{ e.stopPropagation(); setLb((lbIndex - 1 + imgs.length) % imgs.length); });
+  if(lbNext) lbNext.addEventListener("click", (e)=>{ e.stopPropagation(); setLb((lbIndex + 1) % imgs.length); });
+
+  document.addEventListener("keydown", (e)=>{
+    if(!isLbOpen()) return;
+    if(e.key === "Escape") closeLb();
+    if(e.key === "ArrowLeft") setLb((lbIndex - 1 + imgs.length) % imgs.length);
+    if(e.key === "ArrowRight") setLb((lbIndex + 1) % imgs.length);
+  });
+
+  // Swipe dentro del lightbox
+  if(lbInner){
+    let sx=0, sy=0;
+    lbInner.addEventListener("touchstart",(e)=>{
+      const t = e.touches && e.touches[0];
+      if(!t) return;
+      sx = t.clientX; sy = t.clientY;
+    }, {passive:true});
+
+    lbInner.addEventListener("touchend",(e)=>{
+      const t = e.changedTouches && e.changedTouches[0];
+      if(!t) return;
+      const dx = t.clientX - sx;
+      const dy = t.clientY - sy;
+      if(Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy)){
+        if(dx > 0) setLb((lbIndex - 1 + imgs.length) % imgs.length);
+        else setLb((lbIndex + 1) % imgs.length);
+      }
+    }, {passive:true});
+  }
+
+  // Abrir lightbox con tap (no swipe) sobre la imagen grande
+  if(slider && imgs.length){
+    let downX=0, downY=0, downT=0, moved=false;
+    slider.addEventListener("pointerdown",(e)=>{
+      downX = e.clientX; downY = e.clientY; downT = Date.now(); moved = false;
+    }, {passive:true});
+
+    slider.addEventListener("pointermove",(e)=>{
+      if(Math.abs(e.clientX - downX) > 10 || Math.abs(e.clientY - downY) > 10){
+        moved = true;
+      }
+    }, {passive:true});
+
+    slider.addEventListener("pointerup",()=>{
+      const dt = Date.now() - downT;
+      if(!moved && dt < 350){
+        openLb(getIndex());
+      }
+    }, {passive:true});
+  }
   }
 
   // fav toggle
