@@ -15,7 +15,7 @@
 }
 
 *{box-sizing:border-box}
-html,body{height:100%}
+html,body{height:100%; overflow-x:hidden}
 body{
   margin:0;
   font-family:"Work Sans",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
@@ -358,6 +358,8 @@ main{
 .pill{
   position:absolute;
   top:10px; left:10px;
+  z-index:8;
+  pointer-events:none;
   font-weight:900;
   font-size:10px;
   letter-spacing:.4px;
@@ -839,6 +841,8 @@ main{
 .dot.is-active{ background:#fff; }
 
 .card__photo{
+  position:relative;
+  z-index:1;
   max-height:104px;
   max-width:calc(100% - 8px);
   width:auto;
@@ -914,4 +918,15 @@ main{
   .promoBanner__big{ font-size:54px; }
   .card__photo{ max-height:120px; }
   .pdp__mainimg{ max-height:340px; }
+}
+
+
+/* Mobile overflow guards */
+.pdp, .pdp__gallery, .pdp__info{min-width:0;}
+#app{overflow-x:hidden;}
+
+@media (max-width: 739px){
+  .pdp{grid-template-columns:1fr !important;}
+  .pdp__heroimg{height:240px;}
+  .pdp__slide img{max-height:240px;}
 }

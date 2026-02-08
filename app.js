@@ -6,6 +6,8 @@
 const $ = (s, root=document) => root.querySelector(s);
 const $$ = (s, root=document) => [...root.querySelectorAll(s)];
 
+const IMG_PLACEHOLDER = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
 const state = {
   tab: "favoritos", // favoritos | nuevos | vistos
   query: "",
@@ -917,7 +919,7 @@ function productPage(p){
     ? `<div id="pdpSlider" class="pdp__slider" aria-label="Galería de imágenes">
         ${imgs.map((src, i)=>`
           <div class="pdp__slide" data-i="${i}">
-            <img src="${src}" alt="${escapeHtml(p.name)} - Foto ${i+1}" loading="${i===0?'eager':'lazy'}">
+            <img ${i===0 ? `src="${src}" fetchpriority="high"` : `src="${IMG_PLACEHOLDER}" data-src="${src}"`} alt="${escapeHtml(p.name)} - Foto ${i+1}" loading="${i===0?'eager':'lazy'}" decoding="async">
           </div>
         `).join("")}
       </div>`
@@ -928,7 +930,7 @@ function productPage(p){
         <div class="pdp__thumbs" id="pdpThumbs">
           ${thumbs.map((src, i)=>`
             <div class="thumb ${i===0?"is-active":""}" data-thumb="${i}" title="Imagen ${i+1}">
-              <img src="${src}" alt="Miniatura ${i+1}" loading="lazy">
+              <img src="${src}" alt="Miniatura ${i+1}" loading="lazy" decoding="async">
             </div>
           `).join("")}
         </div>
@@ -1126,7 +1128,9 @@ function bindHome(){
 function bindProductPage(p){
   const imgs = (p.images && p.images.length) ? p.images : [];
   const slider = $("#pdpSlider");
-  const thumbs = $$(".thumb");
+  const thumbsWrap = $("#pdpThumbs");
+  const thumbs = $$("#pdpThumbs .thumb");
+  const slideImgs = slider ? $$("#pdpSlider img") : [];
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
@@ -1135,19 +1139,50 @@ function bindProductPage(p){
     return clamp(Math.round(slider.scrollLeft / slider.clientWidth), 0, Math.max(0, imgs.length - 1));
   };
 
+  const loadSlide = (i) => {
+    if(!slideImgs.length) return;
+    const idx = clamp(i, 0, slideImgs.length - 1);
+    const img = slideImgs[idx];
+    if(!img) return;
+    const ds = img.getAttribute("data-src");
+    if(ds && img.getAttribute("src") === IMG_PLACEHOLDER){
+      img.src = ds;
+      img.removeAttribute("data-src");
+    }
+  };
+
+  const ensureThumbVisible = (el) => {
+    if(!thumbsWrap || !el) return;
+    const cLeft = thumbsWrap.scrollLeft;
+    const cRight = cLeft + thumbsWrap.clientWidth;
+    const tLeft = el.offsetLeft;
+    const tRight = tLeft + el.offsetWidth;
+
+    if(tLeft < cLeft || tRight > cRight){
+      const target = tLeft - (thumbsWrap.clientWidth/2 - el.offsetWidth/2);
+      thumbsWrap.scrollTo({ left: target, behavior: "smooth" });
+    }
+  };
+
   const setActiveThumb = (i) => {
     thumbs.forEach(x => x.classList.remove("is-active"));
     const t = thumbs.find(x => parseInt(x.dataset.thumb, 10) === i);
     if(t){
       t.classList.add("is-active");
-      // asegura que la mini quede visible
-      t.scrollIntoView({behavior:"smooth", inline:"center", block:"nearest"});
+      // solo mueve el carrusel de minis, NO la página
+      ensureThumbVisible(t);
     }
   };
 
   const goTo = (i, smooth=true) => {
     if(!slider) return;
     const idx = clamp(i, 0, Math.max(0, imgs.length - 1));
+
+    // carga progresiva (mejor rendimiento en Android)
+    loadSlide(idx);
+    loadSlide(idx + 1);
+    loadSlide(idx - 1);
+
     const left = slider.clientWidth * idx;
     slider.scrollTo({ left, behavior: smooth ? "smooth" : "auto" });
     setActiveThumb(idx);
@@ -1162,24 +1197,31 @@ function bindProductPage(p){
     });
   });
 
-  // Sincronizar miniatura al deslizar
+  // Sincronizar miniatura al deslizar (sin saltos de scroll)
   let scrollTick = null;
   if(slider){
     slider.addEventListener("scroll", ()=>{
       if(scrollTick) cancelAnimationFrame(scrollTick);
       scrollTick = requestAnimationFrame(()=>{
-        setActiveThumb(getIndex());
+        const idx = getIndex();
+        setActiveThumb(idx);
+        loadSlide(idx + 1);
       });
     }, {passive:true});
   }
 
-  // Auto slider cada 3s + pausa al interactuar
+  // Auto slider cada 3s (solo cuando el slider está visible)
   let autoTimer = null;
   let resumeTimer = null;
+  let isVisible = true;
+
+  function canAuto(){
+    return !!slider && imgs.length > 1 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
 
   function startAuto(){
     stopAuto();
-    if(!slider || imgs.length <= 1) return;
+    if(!canAuto() || !isVisible) return;
     autoTimer = setInterval(()=>{
       const next = (getIndex() + 1) % imgs.length;
       goTo(next, true);
@@ -1197,19 +1239,35 @@ function bindProductPage(p){
     resumeTimer = setTimeout(startAuto, 6000);
   }
 
-  if(slider && imgs.length > 1){
-    // iniciar cuando ya hay layout
+  if(slider && imgs.length > 0){
     requestAnimationFrame(()=>{
       goTo(0, false);
-      startAuto();
+      loadSlide(0);
+      loadSlide(1);
     });
 
     ["touchstart","pointerdown","mousedown","wheel"].forEach(ev=>{
       slider.addEventListener(ev, pauseAuto, {passive:true});
     });
 
+    // Observa visibilidad para evitar "loco" al hacer scroll en móvil
+    if("IntersectionObserver" in window){
+      const io = new IntersectionObserver((entries)=>{
+        isVisible = !!(entries[0] && entries[0].isIntersecting);
+        if(isVisible) startAuto();
+        else stopAuto();
+      }, {threshold: 0.6});
+      io.observe(slider);
+    } else {
+      startAuto();
+    }
+
+    document.addEventListener("visibilitychange", ()=>{
+      if(document.hidden) stopAuto();
+      else startAuto();
+    });
+
     window.addEventListener("resize", ()=>{
-      // mantener el índice al rotar / cambiar tamaño
       goTo(getIndex(), false);
     });
   }
@@ -1266,6 +1324,7 @@ function bindProductPage(p){
     });
   });
 }
+
 
 /* -------- Menu / Drawer -------- */
 function bindDrawer(){
